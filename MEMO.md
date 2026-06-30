@@ -21,6 +21,7 @@ DigiKey storefront is Cloudflare-protected (curl → 403). Built on **DigiKey Pr
 |---|---|
 | `main.py` | `excelta_<date>.csv` + `.xlsx` (scrape) |
 | `analyze.py` | `excelta_analysis_<date>.xlsx` (6 sheets + Pareto/stockout charts) + `ANALYSIS_<date>.md` |
+| `dashboard.py` | `dashboard_<date>.html` — gorgeous, fully offline (ECharts inlined); trends section auto-activates at ≥2 snapshots |
 | `timeseries.py` | `TRENDS_<date>.md` + `excelta_changes_<date>.csv` (gated: needs ≥2 snapshots) |
 | tests | 15 offline tests pass |
 

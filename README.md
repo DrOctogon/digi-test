@@ -1,16 +1,42 @@
-# Excelta @ DigiKey — Daily Product Scraper
+# Excelta @ DigiKey — Inventory Intelligence
 
-Pulls every **Excelta Corporation** product across the 31 DigiKey category/filter
-links in `link.json` and writes one dated CSV per day to `data/excelta_YYYY-MM-DD.csv`.
+A daily pipeline that scrapes every **Excelta Corporation** product on DigiKey, then
+turns each snapshot into an analyst-grade workbook, a gorgeous offline dashboard, and
+(once history accrues) a trend/demand layer.
 
-Uses the **DigiKey Product Information API v4** (not HTML scraping): the storefront
-sits behind Cloudflare, but `api.digikey.com` is a sanctioned REST API — reliable for
-an unattended daily job.
+Uses the **DigiKey Product Information API v4** (not HTML scraping): the storefront sits
+behind Cloudflare, but `api.digikey.com` is a sanctioned REST API — reliable for an
+unattended daily job. Latest run: **1,330 unique parts** in ~46s.
 
-## How it works
+## Pipeline at a glance
 
-1. `config.py` parses `link.json` → 30 DigiKey category ids (the trailing path segment
-   of each URL).
+```
+main.py        scrape   -> data/excelta_<date>.csv + .xlsx
+analyze.py     analyze  -> data/excelta_analysis_<date>.xlsx (+charts) + ANALYSIS_<date>.md
+dashboard.py   visualize-> data/dashboard_<date>.html        (offline; trends auto-activate)
+timeseries.py  trends   -> data/TRENDS_<date>.md + excelta_changes_<date>.csv  (needs >=2 snapshots)
+```
+
+## Project structure
+
+| File | Role |
+|---|---|
+| `config.py` | Env/creds + parses `link.json` → 30 DigiKey category ids |
+| `digikey_client.py` | OAuth (cached token) + v4 keyword search, retry/backoff, parametric subdivision |
+| `pipeline.py` | Concurrent per-category fetch, >300 subdivision, global dedupe |
+| `parse.py` | v4 product → flat CSV row (one per DigiKey part) |
+| `writer.py` | Dated CSV + formatted XLSX |
+| `main.py` | Scrape CLI |
+| `analysis.py` | WS1–5 analytics (validate, ABC, stock health, price, assortment) |
+| `analyze.py` | Builds analysis XLSX (6 sheets + charts) + markdown summary |
+| `dashboard.py` | Self-contained HTML dashboard (ECharts), trends section |
+| `timeseries.py` | WS6 day-over-day diff (gated on ≥2 snapshots) |
+| `tests/` | 15 offline tests (parser, analysis, time-series) |
+| `vendor/echarts.min.js` | Inlined into the dashboard for offline use |
+
+## How the scrape works
+
+1. `config.py` parses `link.json` → 30 DigiKey category ids (trailing path segment).
 2. `digikey_client.py` does app-only OAuth (`client_credentials`, token cached to
    `.token_cache.json`) and v4 keyword search with retry/backoff.
 3. `pipeline.py` fetches every category **concurrently** (`ThreadPoolExecutor`). DigiKey
@@ -18,9 +44,7 @@ an unattended daily job.
    (e.g. tweezers = 556) is **recursively subdivided by a parametric filter** until every
    slice fits. Results are merged with a global dedupe by DigiKey part number; leaf
    categories win the category label over broad parents.
-4. `writer.py` writes the dated CSV (one row per DigiKey part number / variation).
-
-Latest run: **1330 unique parts** in ~46s.
+4. `writer.py` writes the dated CSV + XLSX (one row per DigiKey part number / variation).
 
 ## Setup
 
@@ -41,7 +65,7 @@ it blank to auto-resolve from `EXCELTA_MANUFACTURER_NAME` on first run.
 
 ```bash
 python main.py --probe          # verify creds, resolve manufacturer, sample one category
-python main.py                  # full run -> data/excelta_<today>.csv
+python main.py                  # full run -> data/excelta_<today>.csv + .xlsx
 python main.py --date 2026-06-30 # override the date stamp
 ```
 
@@ -74,6 +98,16 @@ Outputs `data/excelta_analysis_<date>.xlsx` (Exec Summary, Data Quality, ABC, St
 Price Architecture, Assortment — with Pareto + stockout/value charts) and a Pyramid-Principle
 markdown summary. Guardrails: inventory value is a list x stock **proxy**; $0 excluded from price
 stats; no trend claims on one snapshot.
+
+## Dashboard (gorgeous, offline)
+
+```bash
+python dashboard.py               # latest snapshot -> data/dashboard_<date>.html
+```
+Self-contained HTML (ECharts inlined from `vendor/echarts.min.js` → works with **no internet**;
+falls back to CDN if the vendor file is absent). KPI cards, Pareto, priority bubble (stockout ×
+value), category bars, price histogram, assortment/ABC donuts. A **Trends & demand** section
+auto-appears once ≥2 daily snapshots exist (demand sparkline, top movers).
 
 ## Trends / demand (WS6 — needs >=2 snapshots)
 
